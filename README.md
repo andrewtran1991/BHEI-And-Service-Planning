@@ -3,6 +3,8 @@
 
 This project provides a comprehensive tool for generating detailed reports on social, economic, housing, and demographic profiles for various regions. The tool is designed to assist in service planning, ensuring that provisions are informed by data and tailored to the cultural and regional specifics of the target communities. 
 
+For dashboards and detailed reports, please visit: https://www.communityexperiencepartnership.com/
+
 ## Overview
 
 The Service Planning Tool leverages data from the U.S. Census Bureau's American Community Survey (ACS) for the 5-year period from 2017 to 2021. It generates reports that summarize key differences in selected areas compared to San Diego County, helping identify regions with the greatest need for behavioral health services.
