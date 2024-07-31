@@ -1,0 +1,2116 @@
+---
+title: "Community Experience Partnership: <br> Service Planning Report"
+subtitle: "Using data to inform behavioral health service planning in San Diego County"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  bookdown::html_document2: 
+    toc: true # table of content true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+      toc_depth: 3
+    number_sections: false
+    fig_caption: true
+    theme: flatly  
+    highlight: NULL
+
+runtime: flatly
+
+params:
+  geos: NA
+  targ: NA
+  type: NA
+  aggregate_all: NA
+  separate_all: NA
+  compare_cnty: NA
+  compare_hhsa: NA
+  aggregate_hhsa: NA
+  separate_hhsa: NA
+  compare_sra: NA
+  aggregate_sra: NA
+  separate_sra: NA
+  compare_zcta: NA
+  aggregate_zcta: NA
+  separate_zcta: NA
+  compare_tract: NA
+  aggregate_tract: NA
+  separate_tract: NA
+  dt: NA
+---
+
+```{r logo, echo=FALSE, out.width = "30%", fig.align = "center"}
+knitr::include_graphics("cep_logo.png")
+```
+
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+```{r tidy data, include = FALSE, echo = FALSE}
+
+
+#### Labels and Housekeeping ######
+
+# Define Live Well Color Palette
+sd_colors <- c("#Dd8452", "#4c72b0",  "#64b5cd", "#Ccb974", "#8c8c8c", "#Da8bc3","#937860", "#8172b3","#C44e52","#55a868","#Faa663" ,"#00a9c5")
+sd_colors_short <- c("#00a9c5", "#Faa663" , "#55a868", "#C44e52")
+
+
+
+#This sets the number of geographies to show before switching to subpopulations bar charts (e.g., from the all race ethnicity chart, to charts broken down for each racial ethnic group... see bar_chart functions)
+set_num <- 4
+
+# Format YAML selections to combine words correctly for reading (using `and')
+geo_pretty <- combine_words(params$geos)
+targ_pretty <- combine_words(params$targ)
+comp_hhsa_pretty <- combine_words(params$compare_hhsa)
+comp_sra_pretty <- combine_words(params$compare_sra)
+comp_zcta_pretty <- combine_words(params$compare_zcta)
+comp_tract_pretty <- combine_words(params$compare_tract)
+
+ 
+# Prepare data:: Process is to filter prepared df to the "Target area" and "comparison area" GEOIDs selected in the Shiny App. Next group by comparison/target, GEOID and outcome, calculate totals for target and comparison regions. filter by table labels and outcomes  (as defined in excel labeling file) and apply functions to build charts and tables for each outcome of interest
+
+# Load in the service data
+#df <- service_rmd
+#df <- readRDS("S:/Pop/Data/Disparities_Report/Rshiny/service_rmd.rds") 
+df <- service_rmd %>%
+  filter(!grepl("Clients", source_filter))
+
+
+# Define variables  
+#ACS 5-year period
+year <- unique(df$year)
+
+# Filter df to areas selected by params (target and comparison)
+# Create a filtering dataframe for target 
+GEOID <- c(params$geos)
+#GEOID <- c("Carlsbad", "Central San Diego", "Chula Vista")
+compare <- c("Target Area")
+a <- cbind.data.frame(GEOID, compare)
+count_targ <- nrow(a)
+
+# Create a filtering dataframe for comparison
+if (params$compare_cnty == TRUE){
+GEOID <- c(params$compare_hhsa, params$compare_sra, params$compare_zcta, params$compare_tract, "San Diego County") 
+} else{GEOID <- c(params$compare_hhsa, params$compare_sra, params$compare_zcta, params$compare_tract)
+}
+
+comp_all_pretty <- combine_words(GEOID)
+
+
+if(length(GEOID) > 0) {
+compare <- c("Comparison Area")
+b <- cbind.data.frame(GEOID, compare)
+count_comp <- nrow(b)
+}else{count_comp <- 0}
+
+
+# Bind together to create filtering df
+if(length(GEOID) > 0) {
+param_filter <- bind_rows(a,b)
+}else{param_filter <- a}
+
+# Left-join df to retain selected GEOIDS
+count_comp_targ <- nrow(param_filter)
+df_full <- left_join(param_filter, df)
+
+df_target <- df_full %>%
+  filter(compare == "Target Area")
+# Add inline text variables for RMD report -- target and comparison areas should be plural says "areas" else "area"
+
+
+# Save variable of the total population (this is used in the narrative of the report)
+total_pop <- df_target %>%
+  filter(outcome == "total_population_census") %>%
+  dplyr::select(smst_nm) %>%
+  unique() %>%
+  summarise(sum(round(smst_nm, 0)))
+total_pop_pretty <- prettyNum(total_pop, big.mark = ",")
+
+       type_of_geo <- unique(df_target$type)
+ # Combine words correctly for reading (using , `and') for areas and hhsa regions
+      area_pretty <- combine_words(params$geos)
+      
+  
+      # Make hhsa regions and plural if more than one area selected
+      if (type_of_geo  == "SRA") {
+      area_plural <- ifelse(count_targ > 1,
+                          paste(area_pretty, "are Subregional Areas (SRAs)"),
+                          paste(area_pretty, "is a Subregional Area (SRA)"))
+      }
+      
+      if (type_of_geo  == "HHSA") {
+      area_plural <- ifelse(count_targ > 1, 
+                            paste("The", area_pretty, "regions are HHSA geographies"),
+                            paste("The", area_pretty, "region is a HHSA geography"))
+      
+      }
+      
+        if (type_of_geo  == "Census Tract") {
+      area_plural <- ifelse(count_targ > 1, 
+                            paste("Census tracts", area_pretty, "are"),
+                          paste("Census tract", area_pretty, "is"))
+      
+      }
+      
+       if (type_of_geo  == "Zip") {
+      area_plural <- ifelse(count_targ > 1,
+                          paste("Zip codes", area_pretty, "are"),
+                          paste("Zip code", area_pretty, "is"))
+      }
+         
+  
+      
+      was_were <- ifelse(count_targ > 1, "were", "was")
+      area_areas <- ifelse(count_targ > 1, "areas", "area") 
+      type_of_geo_plural <- paste0(type_of_geo, "s")
+      
+      # General names to reference combined areas if >1 areas selected or area name in the report
+      area_combined_lower <- ifelse(count_targ > 1, "the selected areas", "this area")
+      area_combined_upper <- ifelse(count_targ > 1, "The selected areas", "This area")
+      
+   
+
+      
+
+
+if (length(params$geos) > 1){
+  targ_plural <- "areas"
+}else{targ_plural <- "area"}
+
+if (length(params$geos) > 1){
+  targ_is_are <- "are"
+}else{targ_is_arel <- "is"}
+
+
+if (count_comp > 1){
+  comp_plural <- "which were selected as comparison areas in the CEP Service Planning Tool."
+}else{comp_plural <- "which was the only user-defined comparison area seleted in the CEP Service Planning Tool."}
+
+
+if (count_comp_targ > 1){
+  all_plural <- "areas"
+}else{all_plural <- "area"}
+
+
+      
+ 
+# Count the number of selected areas and HHSA regions and add labels for reading
+      hhsa_pretty <- combine_words(unique(df_target$hhsa_nm))
+      hhsa_length <- unique(df_target$hhsa_nm)
+      hhsa_length <- ifelse(type_of_geo != "HHSA", length(hhsa_length), 0)
+      
+      hhsa_plural <- ifelse(hhsa_length > 1, paste0("located in the ", hhsa_pretty, " HHSA regions of San Diego County."),
+                            ifelse(hhsa_length == 1, paste0("located in the ", hhsa_pretty, " HHSA region of San Diego County."), 
+                              ifelse(hhsa_length == 0,  paste("located in San Diego County."), "")))
+      # Paste together to make first sentence
+      first_sentence <- paste(area_plural,  hhsa_plural)
+      
+      
+# Using aggregation selections from shiny app, remove target and comparison areas that user does not want to view separately
+df_separate <- df_full %>%
+  filter(type != "San Diego County")
+
+if(params$separate_all == FALSE & params$aggregate_all == TRUE) {
+  df_separate <- df_separate %>%
+  filter(compare != "Target Area")
+}
+
+if(params$separate_hhsa == FALSE & params$aggregate_hhsa == TRUE){
+   df_separate <- df_separate %>%
+  filter(!(compare == "Comparison Area" & type == "HHSA"))
+}
+
+if(params$separate_sra == FALSE & params$aggregate_sra == TRUE){
+   df_separate <- df_separate %>%
+  filter(!(compare == "Comparison Area" & type == "SRA"))
+}
+
+if(params$separate_zcta == FALSE & params$aggregate_zcta == TRUE){
+   df_separate <- df_separate %>%
+  filter(!(compare == "Comparison Area" & type == "Zip"))
+}
+
+if(params$separate_tract == FALSE & params$aggregate_tract == TRUE){
+   df_separate <- df_separate %>%
+  filter(!(compare == "Comparison Area" & type == "Census Tract"))
+}   
+
+# Correct GEOID to indicate Geography type
+ df_separate <- df_separate %>%
+  mutate(GEOID =  paste0(type,": ", GEOID))
+   
+# Using aggregation selections from shiny app, remove target and comparison areas that user does not want to view aggregated
+ df_total <- df_full %>%
+  filter(type != "San Diego County") 
+
+
+if(params$aggregate_all == FALSE | length(params$geos) < 2) {
+  df_total <- df_total %>%
+  filter(compare != "Target Area" )
+}
+
+if(params$aggregate_hhsa == FALSE  | length(params$compare_hhsa) < 2) {
+  df_total <- df_total %>%
+  filter(!(compare == "Comparison Area" & type == "HHSA"))
+}
+
+if(params$aggregate_sra == FALSE  | length(params$compare_sra) < 2) {
+ df_total <- df_total %>%
+    filter(!(compare == "Comparison Area" & type == "SRA"))
+}
+
+if(params$aggregate_zcta == FALSE  | length(params$compare_zcta) < 2) {
+  df_total <- df_total %>%
+  filter(!(compare == "Comparison Area" & type == "Zip"))
+}
+ 
+ if(params$aggregate_tract == FALSE  | length(params$compare_tract) < 2) {
+  df_total <- df_total %>%
+  filter(!(compare == "Comparison Area" & type == "Census Tract"))
+}
+ 
+# Group and calculate totals across selections of the same type
+  if(nrow(df_total > 0)){
+    df_total <- df_total %>%
+      
+    select(-hhsa_nm) %>%
+    group_by(compare, type, outcome) %>%
+          mutate(smst_nm = sum(round(smst_nm, 0))) %>%
+          mutate(smst_dn = sum(round(smst_dn, 0))) %>% 
+          mutate(percent = smst_nm/smst_dn,
+          percent = ifelse(smst_dn == 0, 0.0, percent),
+          percent = as.numeric(format(round((percent * 100), 1))),
+          smst_nm_pretty  = prettyNum(smst_nm, big.mark = ","),
+          smst_dn_pretty  = prettyNum(smst_dn, big.mark = ","),
+          percent_pretty = paste0((format(round(percent, 0))),"%"),
+          percent_pretty = ifelse(percent_pretty == "0%", "<1%", percent_pretty),
+          GEOID = ifelse(compare == "Target Area", paste0(type, ": Total*"),
+                          paste0(type, ": Total*"))) %>%
+    unique() 
+
+  }
+ 
+##### Create Analytical Dataset ##### 
+  # Bind totals to main dataset to create one analytical dataset (and format numeric columns for pretty graph)
+ if (nrow(df_total)>0){
+  df_all <- bind_rows(df_separate, df_total) 
+ } else{df_all <- df_separate}
+ 
+# If user wants San Diego County aggregations, bind
+if(params$compare_cnty == TRUE) {
+  df_cnty <- df_full %>%
+  filter(type == "San Diego County")
+df_all <- bind_rows(df_all, df_cnty)
+} 
+  df_all <- df_all %>%
+      mutate(percent_pretty = paste0((format(round(percent, 0))),"%"),
+             percent_pretty = ifelse(percent_pretty == "0%", "<1%", percent_pretty))
+
+  
+  comp_df <- df_all %>%
+    filter(compare == "Comparison Area") %>%
+    select(GEOID) %>%
+    unique() %>%
+    arrange()
+
+
+##### Percentage Bar Chart: Functions #####
+  # Set the hieght of horizontal bar charts depedning on number of regions selected
+  # (e.g., more selections equals bigger chart)
+if (count_comp_targ < 30) {
+  set_height_first <- 700
+}
+  if (count_comp_targ >= 30 & count_comp_targ < 50) {
+  set_height_first <- 1200
+}
+
+if (count_comp_targ >=50 & count_comp_targ < 100) {
+  set_height_first <- 1700
+    }
+  
+  if (count_comp_targ >= 100 & count_comp_targ < 150) {
+  set_height_first <- 1900
+  }
+  
+if (count_comp_targ >= 150) {
+  set_height_first <- 2200
+  }
+  
+# Create percent chart if  more than xareas are selected and at least one of those is a comparison area
+if (count_comp_targ >= set_num & count_comp > 0) {
+chart_percent  <- function(){
+  mrg <- list(l = 50, r = 50,
+          b = 10, t = 80,
+          pad = 5)
+
+# Split into comparison areas and target areas
+chart_split_row <- df_new %>%
+  unique()
+chart_percent_split <- chart_split_row %>%
+  split(.$compare) 
+
+# Set width percentages for charts so they display correctly
+targ <- as.data.frame(chart_percent_split[[2]])
+comp <- as.data.frame(chart_percent_split[[1]])
+width_targ <- nrow(targ)/nrow(chart_split_row)
+width_comp <- nrow(comp)/nrow(chart_split_row)
+set_height <- c(width_targ, width_comp)
+if (width_targ > .9) {
+  set_height <- c(.9, .1)
+  width_comp <- .1
+}
+if (width_comp > .9) {
+  set_height <- c(.1, .9)
+  width_comp <- .9
+}
+  
+ # Create Bar plots
+    fig1 <- plot_ly(targ, y = ~GEOID,  x = ~percent, colors = c("#Faa663"), type = "bar", text = ~percent_pretty, textposition = "auto", hoverinfo = "text",  hovertext = ~paste0(GEOID, ": ", percent_pretty, " (", smst_nm_pretty, " of ", smst_dn_pretty, ")")) 
+    
+    fig2 <- plot_ly(comp, y = ~GEOID,  x = ~percent, colors = c("#00a9c5"), type = "bar", text = ~percent_pretty, textposition = "auto", hoverinfo = "text",  hovertext = ~paste0(GEOID, ": ", percent_pretty, " (", smst_nm_pretty, " of ", smst_dn_pretty, ")"),  height = set_height_first, width = 900)
+    
+    chart_percent <- subplot(fig1, fig2, nrows = 2, shareX = TRUE, shareY = FALSE, titleX = FALSE, titleY = FALSE,
+                             margin = 0.05,  heights = set_height) %>%
+      
+      #Format layout and titles 
+      layout(title = list(text = paste0((unique(df_new$tech_label)), '<br>', '<sup>',"Target areas versus comparison areas", '<sup>' ,'<br>', '<br>'),  x = 0.0, y = -0.2),
+             margin = mrg,
+             yaxis = list(title = ' ', autorange="reversed"),
+             xaxis= list(title=" "),
+             showlegend = FALSE,
+             annotations =  list(
+               list(x = 0.2,   y = 1.0,   text = "Target Areas",  xref = "paper",   yref = "paper",   xanchor = "center",  yanchor = "bottom",   showarrow = FALSE),  
+               list(x = 0.2,   y = width_comp - 0.04,  text = "Comparison Areas", xref = "paper",   yref = "paper",   xanchor = "center",  yanchor = "bottom",   showarrow = FALSE))) %>%
+      config(modeBarButtonsToRemove = c( "lasso2d", "pan2d",  "select2d", "autoScale2d", "resetScale2d", "hoverClosestCartesian", "hoverCompareCartesian", "zoomIn2d", "zoomOut2d"), displaylogo = FALSE,displayModeBar = TRUE)   
+    return(chart_percent)
+    
+    
+  }
+}
+
+# Create percent chart if  more than x areas are selected and none are comparison areas
+if (count_comp_targ >= set_num & count_comp == 0) {
+  chart_percent  <- function(){
+    mrg <- list(l = 50, r = 50,
+                b = 10, t = 80,
+                pad = 5)
+    df_new <-df_new %>%
+      unique()
+    
+    # Create Bar plots
+  chart_percent <- plot_ly(df_new, y = ~GEOID,  x = ~percent, colors = c("#Faa663"), type = "bar", text = ~percent_pretty, textposition = "auto", hoverinfo = "text",  hovertext = ~paste0(GEOID, ": ", percent_pretty, " (", smst_nm_pretty, " of ", smst_dn_pretty, ")"),  height = set_height_first, width = 900) %>%
+      
+              
+              #Format layout and titles 
+              layout(title = list(text = paste0(unique(df_new$tech_label), '<br>'),  x = 0.0, y = -0.2),
+                     margin = mrg,
+                     yaxis = list(title = ' ', autorange="reversed"),
+                     xaxis= list(title= " "),
+                     showlegend = FALSE) %>%
+                config(modeBarButtonsToRemove = c( "lasso2d", "pan2d",  "select2d", "autoScale2d", "resetScale2d", "hoverClosestCartesian", "hoverCompareCartesian", "zoomIn2d", "zoomOut2d"), displaylogo = FALSE, displayModeBar = TRUE)  
+              
+              return(chart_percent)
+              
+              
+  }
+}
+
+# Create percent chart if less than set_num areas are selected (small n bar chart, all subcategories combined in one chart)
+chart_percent_table <- function(){
+  if (count_comp > 0) {
+    df_new <- df_new %>%
+      mutate(GEOID = paste(compare, "-",  GEOID))
+  }
+  mrg <- list(l = 50, r = 50,
+              b = 10, t = 80,
+              pad = 5)
+  if (count_comp_targ == 1) {
+    set_colors =  c("#00a9c5")
+  }
+  if (count_comp_targ == 2) {
+    set_colors =  c("#00a9c5", "#Faa663")
+  }
+  
+  if (count_comp_targ == 3) {
+    set_colors =  c("#00a9c5", "#Faa663" , "#55a868")
+  }
+  if (count_comp_targ == 4) {
+    set_colors =  c("#00a9c5", "#Faa663" , "#55a868", "#C44e52")
+  }
+  chart_percent <- plot_ly(df_new, x = ~bar_label_small_n,  y = ~percent, color = ~GEOID, colors = set_colors , type = "bar", text = ~percent_pretty, textposition = "auto", hoverinfo = "text",  hovertext = ~paste0(GEOID, ": ", percent_pretty, " (", smst_nm_pretty, " of ", smst_dn_pretty, ")"), height = 700, width = 900) %>%
+    
+    layout(title = list(text = paste0(unique(df_new$table_label_year), '<br>'),  x = 0.0, y = -0.2),
+           margin = mrg,
+           yaxis = list(title = 'Percent (%)'),
+           xaxis = list(title = ''), 
+           legend = list(title=list(), itemclick = "toggleothers", 
+                orientation = "h", 
+                x = 0.5,     # center the legend
+                y = 1.02,    # position the legend slightly above the top of the plot area
+                xanchor = "center",  # anchor the center of the legend to the 'x' coordinate
+                yanchor = "bottom"   # anchor the bottom of the legend to the 'y' coordinate
+               )) %>%
+    config(modeBarButtonsToRemove = c( "lasso2d", "pan2d",  "select2d", 
+                                       "autoScale2d", "resetScale2d", "hoverClosestCartesian", "hoverCompareCartesian", "zoomIn2d", "zoomOut2d"),
+           displaylogo = FALSE,
+           displayModeBar = TRUE)   
+  return(chart_percent)
+  
+  
+}
+
+
+
+# Generate data for data table
+draw_data_table <- function() {
+ table_n <- df_new %>%
+  dplyr::select(compare, type, bar_label, smst_nm, GEOID) %>%
+  unique() %>%
+  pivot_wider(names_from = bar_label, values_from = c("smst_nm")) %>%
+  rename_with(~paste0(., " (n)"), -c("GEOID", "compare", "type"))
+   
+  
+table_percent <- df_new %>%
+  dplyr::select(compare, type, bar_label, percent, GEOID) %>%
+  unique() %>%
+  pivot_wider(names_from = bar_label, values_from = c("percent")) %>% 
+  rename_with(~paste0(., " (%)"), -c("GEOID", "compare", "type"))
+
+table_n_percent <- left_join(table_n, table_percent, by = c("GEOID", "compare", "type"))
+table_n_percent <- table_n_percent %>%
+  select(order(colnames(table_n_percent))) %>%
+  dplyr::select(type,  GEOID, compare, everything()) %>%
+  rename("Type of Geography" = "type",
+         "Area" = "GEOID", "Target Area or Comparison Area" = "compare")
+if (count_comp == 0){
+  table_n_percent <- table_n_percent %>%
+    dplyr::select(-"Target Area or Comparison Area")
+}
+  
+
+
+datatable(table_n_percent, 
+          caption = unique(df_new$table_label_year),
+          rownames = FALSE,
+          filter = "top",
+          extensions = 'Buttons',
+          options = list(dom = 'frtipB',
+                           buttons = c('copy', 'excel', 'pdf'),
+                           scrollX=T,
+                           lengthMenu = list(c(10,25,50,-1),
+                                             c(10,25,50,"All"))))
+
+}
+
+
+# Filter map to selected areas
+map_rmd <- map_app %>%
+  filter(GEOID %in%c(params$geos))
+
+
+```
+
+# Introduction
+
+This report is generated by the Community Experience Partnership: Service Planning Tool. The goal of the tool is to help ensure service provision is informed by data, based in cultural and regional considerations, and targeted to communities that may be at greatest risk for unmet behavioral health need.  This report summarizes the social, economic, housing, and demographic profiles of selected regions. To modify the geographic selections and generate a new report, please visit the [Community Experience Project: Service Planning Tool](https://cepservice.shinyapps.io/CEPService/_w_068c3a2c/) application.
+  
+The report uses data from the U.S Census Bureau's 2018-2022 American Community Survey (ACS). To improve reliability, users are encouraged to review sample sizes presented in the data tables and to aggregate areas when estimates are based on small counts. For more information about the ACS, including notes about data limitations and interpretations, refer to the report section [About the Data](#about-the-data). 
+
+
+# About the Selected Areas  
+
+`r first_sentence` An estimated `r total_pop_pretty` people live in `r area_combined_lower`. `r if(total_pop < 1200){paste0("Caution: These estimates are based on a relatively small total population (i.e., <1,200 residents) and may be unreliable. To improve reliability, users are encouraged to select additional regions using the CEP Service Planning application. ")}` The map below shows the location of the selected target `r targ_plural`.
+  
+```{r map, echo = FALSE, results = 'asis'}
+
+
+
+map <-leaflet() %>%
+      addTiles() %>%
+      setView(lng = "-116.87", lat="33.0", zoom = 8.5) %>%
+      addProviderTiles(provider = "OpenStreetMap") %>%
+      addPolygons(data = map_rmd,
+                  label = map_rmd$GEOID,
+                  color = "#00A9C5",
+ opacity = 1.0, fillOpacity = .002, highlightOptions = highlightOptions(color = "white", weight = .5, bringToFront = TRUE))
+    
+ map
+
+```      
+
+`r if(count_comp >= 1){paste0("This report also presents data for ", comp_all_pretty, " ", comp_plural  )}` The table below shows the estimated population sizes for the selected `r all_plural`.
+
+
+```{r targ_size_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(pop_1 == "Total Population" ) %>%
+  dplyr::select(GEOID, compare, smst_nm) %>%
+  arrange(compare, GEOID) %>%
+   rename("Target Area or Comparison Area" = "compare",
+         "Area" = "GEOID",  "Total Population(n)" = "smst_nm") 
+if (count_comp == 0){
+  df_new <- df_new %>%
+    dplyr::select(-"Target Area or Comparison Area")
+}
+df_new <- df_new %>%
+  unique()
+
+pop_size <- datatable(df_new, 
+          rownames = FALSE)
+
+pop_size
+
+```      
+**Data Notes:**
+`r df_new$source`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+# Demographics
+
+This section of the report presents the demographic profiles for individuals residing in the selected `r all_plural`. Demographic outcomes include race/ethnicity, age, limited-English speaking ability, educational attainment, and employment status.
+
+
+## Race/Ethnicity {.tabset}
+This section of the report presents the racial/ethnic distribution for individuals residing in the selected `r all_plural`. Six racial/ethnic identities are included: Hispanic of any race, non-Hispanic American Indian/Alaska Native alone (NH AI/AN), NH Asian, Native Hawaiian or other Pacific Islander alone (API), NH Black alone, NH white alone, and NH multiracial. The percent of each racial/ethnic group living in poverty is presented in the [poverty by race/ethnicity](#poverty-by-race-and-ethnicity) section of this report.
+
+```{r hispanic, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Hispanic\\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "hispanic") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+```
+
+
+```{r aian, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### NH AI/AN\\n") 
+df_new <- df_all %>%
+  filter(outcome == "ai_an") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+
+```
+
+
+```{r  api, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### NH API\\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "api") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+```
+
+
+```{r black, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### NH Black\\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "black") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+
+```
+
+
+```{r white, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### NH White\\n") 
+  df_new <- df_all %>%
+  filter(outcome == "white") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+
+```
+
+```{r two_or_more, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### NH Multiracial\\n") 
+ df_new <- df_all %>%
+  filter(outcome == "two_or_more_race") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+
+```
+
+
+```{r, all_race_ethnicities, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+  filter(pop_1 == "Race/Ethnicity") %>%
+  unique()
+race_chart_percent <- chart_percent_table()
+race_chart_percent
+
+```
+
+### Data Table
+```{r race_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(pop_1 == "Race/Ethnicity") %>%
+  unique()
+race_ethnicity <- draw_data_table()
+race_ethnicity
+
+```      
+
+```{r race_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+
+
+## Age {.tabset}
+
+This section of the report presents the age distribution for individuals residing in the selected `r all_plural`. Five age groupings are included: young children (under 5), children (under 18), Transition Age Youth (TAY; 15 through 24), adults (18 and older), and older adults (65 and older). The percent of each age group living in poverty is presented in the [poverty by age](#poverty-by-age) section of this report.
+
+```{r under_5, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Young Children \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "under5") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+```{r under_18, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Children \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "under18") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+```{r tay, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### TAY \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "tay_total") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+
+```{r adults, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Adults \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "adult") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+```{r older_adults, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Older Adults \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "adult_60") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+
+```{r, all_ages, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+  filter(pop_1 == "Age Special Populations") %>%
+  unique()
+age_chart_percent <- chart_percent_table()
+age_chart_percent
+
+```
+
+### Data Table
+```{r age_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(pop_1 == "Age Special Populations") %>%
+  unique()
+race_ethnicity <- draw_data_table()
+race_ethnicity
+
+```      
+
+## {.unlisted .unnumbered}
+```{r age_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+## Limited English-Speaking Ability {.tabset}
+Individuals are classified as having limited English proficiency (LEP) if they are over the age of 5, speak a language other than English at home, and self-report speaking English less than "very well."  Data are presented for individuals 5 and older who speak English less than "very well" and speak any other language at home, speak Spanish at home, or speak any Asian or Pacific Islander (API) language at home. API languages include: Korean, Chinese, Vietnamese, Tagalog, and other API languages (not specified).
+
+```{r lang_any, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Limited English Proficiency (LEP) \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "any_limited_english") 
+lang_chart_percent <- chart_percent()
+lang_chart_percent
+
+```
+
+
+```{r lang_spanish, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Spanish \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "spanish_limited_english") 
+lang_chart_percent <- chart_percent()
+lang_chart_percent
+
+```
+
+```{r lang_api, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Any API \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "api_limited_english") 
+lang_chart_percent <- chart_percent()
+lang_chart_percent
+
+```
+
+```{r lang_chinese, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Chinese \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "chinese_limited_english") 
+lang_chart_percent <- chart_percent()
+lang_chart_percent
+
+```
+
+
+```{r lang_korean, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Korean \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "korean_limited_english") 
+lang_chart_percent <- chart_percent()
+lang_chart_percent
+
+```
+
+```{r lang_tagalog, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Tagalog \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "tagalog_limited_english") 
+lang_chart_percent <- chart_percent()
+lang_chart_percent
+
+```
+
+```{r lang_vietnamese, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Vietnamese \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "vietnamese_limited_english") 
+lang_chart_percent <- chart_percent()
+lang_chart_percent
+
+```
+
+
+```{r, all_lang, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+  filter(pop_1 == "Language") %>%
+  unique()
+lang_chart_percent <- chart_percent_table()
+lang_chart_percent
+
+```
+
+### Data Table
+```{r lang_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(pop_1 == "Language") %>%
+  unique()
+lang <- draw_data_table()
+lang
+
+```      
+
+```{r lang_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+
+
+## Educational Attainment {.tabset}
+Educational attainment is calculated among those 25 and older. High school graduates include those with a high school equivalency degree. Individuals with an associate degree are not classified as having a bachelor's degree.
+
+```{r hs, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### No High School Degree \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "less_than_hs") 
+edu_chart_percent <- chart_percent()
+edu_chart_percent
+
+```
+
+
+```{r bach, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### No Bachelor's Degree \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "less_than_bach") 
+edu_chart_percent <- chart_percent()
+edu_chart_percent
+
+```
+
+
+```{r, all_edu, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+  filter(pop_1 == "Education") %>%
+  unique()
+edu_chart_percent <- chart_percent_table()
+edu_chart_percent
+
+```
+
+### Data Table
+```{r edu_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(pop_1 == "Education") %>%
+  unique()
+edu <- draw_data_table()
+edu
+
+```      
+
+## {.unlisted .unnumbered}
+```{r edu_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+
+
+
+## Employment Status {.tabset}
+The U.S. Census Bureau classifies civilians 16 years older as unemployed if they are part of the eligible labor force and
+
+1. were neither "at work" nor "with a job but not at work" during the reference week,  
+2. were actively looking for work during the last 4 weeks, and  
+3. were available to accept a job.  
+
+Part-time workers are calculated as the percent of the population 16 years and older who reported working part-time for the past 12 months.
+
+```{r unemp, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Unemployed \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "unemployed") 
+emp_chart_percent <- chart_percent()
+emp_chart_percent
+
+```
+
+
+```{r emp_part, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Worked part-time\\n") 
+  df_new <- df_all %>%
+  filter(outcome == "emp_part") 
+emp_chart_percent <- chart_percent()
+emp_chart_percent
+
+```
+
+
+```{r, all_emp, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+  filter(pop_1 == "Employment Status") %>%
+  unique()
+edu_chart_percent <- chart_percent_table()
+edu_chart_percent
+
+```
+
+### Data Table
+```{r emp_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(pop_1 == "Employment Status") %>%
+  unique()
+emp <- draw_data_table()
+emp
+
+```      
+
+
+```{r emp_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+# Poverty
+
+## Poverty Level{.tabset}
+
+The U.S. Census Bureau uses income thresholds to determine poverty. These thresholds vary by family size, age, and composition. In addition to poverty status, this section of the report also presents data for families living in extreme poverty,  defined as half (50%) of the poverty level, and for families living at twice (200%) the federal poverty level. Poverty status is not calculated for the entire population (e.g., those in college dormitories, nursing homes, etc. are excluded). Refer to the U.S. Census Bureau's technical definition for more information about how the ACS measures [poverty](https://www.census.gov/topics/income-poverty/poverty/guidance/poverty-measures.html). 
+
+
+```{r pov_under_50, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("###  Extreme Poverty\\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "under_50_fpl") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+
+```
+
+
+```{r pov_under_100, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Poverty \\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "under_100_fpl") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+```
+
+```{r pov_under_200, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Twice the poverty level \\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "under_200_fpl") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+```
+`
+
+
+```{r, all_pov_level, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+  filter(pop_1 == "Poverty Level") %>%
+  unique()
+race_chart_percent <- chart_percent_table()
+race_chart_percent
+
+```
+
+### Data Table
+```{r pov_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(pop_1 == "Poverty Level") %>%
+  unique()
+race_ethnicity <- draw_data_table()
+race_ethnicity
+
+```      
+
+
+```{r pov_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+
+## Poverty by Race and Ethnicity {.tabset}
+
+The U.S. Census Bureau uses income thresholds to determine poverty. These thresholds vary by family size, age, and composition. Poverty status is not calculated for the entire population (e.g., those in college dormitories, nursing homes, etc. are excluded). Refer to the U.S. Census Bureau's technical definition for more information about how the ACS measures [poverty](https://www.census.gov/topics/income-poverty/poverty/guidance/poverty-measures.html). 
+
+The graphs below show the percent of each racial/ethnic group living in poverty for the selected `r all_plural`. Individuals that identify as a single race and Hispanic are categorized in both that racial group and as Hispanic. 
+
+
+```{r pov_hispanic, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Hispanic in Poverty\\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "pov_hispanic") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+```
+
+
+```{r pov_aian, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### AI/AN in Poverty\\n") 
+df_new <- df_all %>%
+  filter(outcome == "pov_aian") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+
+```
+
+
+```{r pov api, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### API in Poverty\\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "pov_api") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+```
+
+
+```{r pov_black, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Black in Poverty\\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "pov_black") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+
+```
+
+
+```{r pov_white, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### White in Poverty\\n") 
+  df_new <- df_all %>%
+  filter(outcome == "pov_white") 
+race_chart_percent <- chart_percent()
+race_chart_percent
+
+```
+
+```{r, pov_all_race_ethnicities, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+  filter(pop_1 %in%  c("Poverty by Race", "Poverty by Hispanic Ethnicity")) 
+race_chart_percent <- chart_percent_table()
+race_chart_percent
+
+```
+
+### Data Table: Race
+```{r pov_race_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+    filter(pop_1 %in%  c("Poverty by Race", "Poverty by Hispanic Ethnicity")) 
+race_ethnicity <- draw_data_table()
+race_ethnicity
+
+```      
+
+
+```{r pov_race_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+## Poverty by Age {.tabset}
+
+ The U.S. Census Bureau uses income thresholds to determine poverty. These thresholds vary by family size, age, and composition. Poverty status is not calculated for the entire population (e.g., those in college dormitories, nursing homes, etc. are excluded). Refer to the U.S. Census Bureau's technical definition for more information about how the ACS measures [poverty](https://www.census.gov/topics/income-poverty/poverty/guidance/poverty-measures.html). 
+
+The graphs below shows the percent of each age group living in poverty for the selected `r all_plural`. 
+
+```{r pov_under_5, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Young Children in Poverty \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "pov_under_5") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+```{r pov_under_18, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Children in Poverty \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "pov_children") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+```{r pov_tay, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### TAY in Povety \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "pov_tay") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+
+```{r pov_adults, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Adults in Poverty \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "pov_adults") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+```{r pov_older_adults, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Older Adults in Poverty \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "pov_older_adults") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+ 
+```{r, pov_all_ages, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+  filter(pop_1 == "Poverty by Age Special Populations")
+age_chart_percent <- chart_percent_table()
+age_chart_percent
+
+```
+
+### Data Table
+```{r pov_age_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(pop_1 == "Poverty by Age Special Populations")  %>%
+  mutate(table_label_year =str_replace(table_label_year, "group", "special populations")) %>%
+  unique()
+race_ethnicity <- draw_data_table()
+race_ethnicity
+
+```      
+
+## {.unlisted .unnumbered}
+```{r pov_age_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+
+## Poverty Among Foreign Born {.tabset}
+The U.S. Census Bureau uses income thresholds to determine poverty. These thresholds vary by family size, age, and composition. Poverty status is not calculated for the entire population (e.g., those in college dormitories, nursing homes, etc. are excluded). Refer to the U.S. Census Bureau's technical definition for more information about how the ACS measures [poverty](https://www.census.gov/topics/income-poverty/poverty/guidance/poverty-measures.html). 
+  
+The graph below shows the percent of individuals who are foreign born and living in poverty for the selected `r all_plural`. 
+
+```{r pov_foreign_born, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Foreign born in poverty \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "pov_foreign_born") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+ 
+```{r, pov_foreign_bar, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "pov_foreign_born")  %>%
+  unique()
+age_chart_percent <- chart_percent_table()
+age_chart_percent
+
+```
+
+
+### Data Table
+```{r pov_foreign_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(outcome == "pov_foreign_born")  %>%
+  unique()
+race_ethnicity <- draw_data_table()
+race_ethnicity
+
+```      
+
+## {.unlisted .unnumbered}
+```{r pov_foreign_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+
+
+## Poverty Among Veterans {.tabset}
+The U.S. Census Bureau uses income thresholds to determine poverty. These thresholds vary by family size, age, and composition. Poverty status is not calculated for the entire population (e.g., those in college dormitories, nursing homes, etc. are excluded). Refer to the U.S. Census Bureau's technical definition for more information about how the ACS measures [poverty](https://www.census.gov/topics/income-poverty/poverty/guidance/poverty-measures.html). 
+
+The graph below shows the percent of veterans living in poverty for the selected `r all_plural`. 
+
+```{r pov_vet, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Veterans in poverty \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "pov_veteran") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+ 
+```{r, pov_vet_bar, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "pov_veteran")  %>%
+  unique()
+age_chart_percent <- chart_percent_table()
+age_chart_percent
+
+```
+
+### Data Table
+```{r pov_vet_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(outcome == "pov_veteran")  %>%
+  unique()
+race_ethnicity <- draw_data_table()
+race_ethnicity
+
+```      
+
+## {.unlisted .unnumbered}
+```{r pov_vet_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+
+## Poverty Among Single Parents {.tabset}
+The U.S. Census Bureau uses income thresholds to determine poverty. These thresholds vary by family size, age, and composition. Poverty status is not calculated for the entire population (e.g., those in college dormitories, nursing homes, etc. are excluded). Refer to the U.S. Census Bureau's technical definition for more information about how the ACS measures [poverty](https://www.census.gov/topics/income-poverty/poverty/guidance/poverty-measures.html). 
+
+The graph below shows the percent of children under 18 living in poverty in single parent households for the selected `r all_plural`. Data are presented separately for single mother and single father households. 
+
+```{r pov_single_parent, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Single parent Housholds in Poverty \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "pov_single_overall") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+
+```{r pov_single_female, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Single Mother Housholds in Poverty \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "pov_single_female") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+
+```{r pov_single_male, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+asis_output("### Single Father Housholds in Poverty \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "pov_single_male") 
+age_chart_percent <- chart_percent()
+age_chart_percent
+
+```
+
+ 
+```{r, pov_single_bar, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+   filter(outcome %in% c("pov_single_overall", "pov_single_female", "pov_single_male"))  %>%
+  unique()
+age_chart_percent <- chart_percent_table()
+age_chart_percent
+
+```
+
+### Data Table
+```{r pov_single_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(outcome %in% c("pov_single_overall", "pov_single_female", "pov_single_male"))  %>%
+  unique()
+race_ethnicity <- draw_data_table()
+race_ethnicity
+
+```      
+
+## {.unlisted .unnumbered}
+```{r pov_single_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+# Disability Status {.tabset}
+
+This section presents data on disability status. The ACS asks about six disability types:  
+
+* Hearing difficulty- deaf or having serious difficulty hearing 
+* Vision difficulty - blind or having serious difficulty seeing, even when wearing glasses 
+* Cognitive difficulty - because of a physical, mental, or emotional problem, having difficulty remembering, concentrating, or making decisions 
+* Ambulatory difficulty - having serious difficulty walking or climbing stairs
+* Self-care difficulty - having difficulty bathing or dressing
+* Independent living difficulty - because of a physical, mental, or emotional problem, having difficulty doing errands alone such as visiting a doctor's office or shopping  
+
+Respondents are categorized as having a disability if they  report at least one of the six disability types.
+
+## {.tabset}
+```{r disability, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Disability Status \\n")
+  df_new <- df_all %>%
+  filter(outcome == "disability") 
+vet_chart_percent <- chart_percent()
+vet_chart_percent
+
+```
+
+
+```{r, all_disability, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+    filter(outcome == "disability") %>%
+  unique()
+vet_chart_percent <- chart_percent_table()
+vet_chart_percent
+
+```
+
+### Data Table
+```{r disability_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+    filter(outcome == "disability")  %>%
+  unique()
+vet_mil <- draw_data_table()
+vet_mil
+
+```      
+
+## {.unlisted .unnumbered}
+```{r pov_disability_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+# Receipt of Public Assistance {.tabset}
+
+This section presents data on households receiving Food Stamps/SNAP, any public assistance income, and receipt of either public assitance income OR Food Stamps/SNAP. Participation in the Food Stamp Program/SNAP includes households in which one or more of the current members received food stamps during the past 12 months. 
+
+Receipt of any public assistance is also presented among household  where children under 18 are living. Public assistance is defined as receiving Supplemental Security Income (SSI), cash public assistance income, or Food Stamps/SNAP in the past 12 months.
+
+## {.tabset}
+```{r snap, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Received Food Stamps/SNAP \\n")
+  df_new <- df_all %>%
+  filter(outcome == "snap") 
+vet_chart_percent <- chart_percent()
+vet_chart_percent
+
+```
+
+
+```{r any_assist, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Received Any Public Assistance Income \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "public_assist") 
+vet_chart_percent <- chart_percent()
+vet_chart_percent
+
+```
+
+```{r any_assist_snap, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Received Any Public Assistance or SNAP \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "public_assist_snap") 
+vet_chart_percent <- chart_percent()
+vet_chart_percent
+
+```
+
+
+```{r any_assist_child, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Received Any Public Assistance (Housheolds with Children) \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "public_assist_child") 
+vet_chart_percent <- chart_percent()
+vet_chart_percent
+
+```
+
+
+```{r, all_assist, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+    filter(pop_1 == "Public Assistance") %>%
+  unique()
+vet_chart_percent <- chart_percent_table()
+vet_chart_percent
+
+```
+
+### Data Table
+```{r assist_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+    filter(pop_1 == "Public Assistance") %>%
+  unique()
+vet_mil <- draw_data_table()
+vet_mil
+
+```      
+
+
+```{r assist_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+# Health Insurance Coverage
+
+## {.tabset}
+The U.S. Census Bureau classifies health insurance broadly as private or public insurance based on the following definitions:
+
+* Private health insurance includes a plan provided through an employer or union, a plan purchased by an individual from a private company, or TRICARE or other military health care.  
+* Public health insurance includes  Medicare, Medicaid, VA Health Care (provided through the Department of Veterans Affairs), and the Children's Health Insurance Program (CHIP).  
+* Uninsured individuals are those with no reported health coverage, or those whose only health coverage was Indian Health Service (IHS).
+
+This report also includes data separately for individuals covered by Medi-CAL, either alone or in combination with another type of health insurance. All insurance outcomes are calculated as the percent of the civilian non-institutionalized population.
+
+
+```{r medicaid, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("###  Medi-CAL Insured\\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "medicaid") 
+ins_chart_percent <- chart_percent()
+ins_chart_percent
+
+```
+
+
+```{r ins_public, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("###  Any Public Insurance\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "public") 
+ins_chart_percent <- chart_percent()
+ins_chart_percent
+
+```
+
+
+```{r ins_no, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("###  Uninsured\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "uninsured") 
+ins_chart_percent <- chart_percent()
+ins_chart_percent
+
+```
+
+
+```{r ins_private, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("###  Any Private Insurance\n") 
+
+df_new <- df_all %>%
+  filter(outcome == "private") 
+ins_chart_percent <- chart_percent()
+ins_chart_percent
+
+```
+
+
+```{r, all_ins_level, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+  filter(pop_1 == "Health Insurance") %>%
+  unique()
+ins_chart_percent <- chart_percent_table()
+ins_chart_percent
+
+```
+
+### Data Table
+```{r ins_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(pop_1 == "Health Insurance")%>%
+  unique()
+ins <- draw_data_table()
+ins
+
+```      
+
+
+```{r ins_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+
+
+
+# Housing Affordability and Quality
+
+## Affordability {.tabset}
+Housing affordability is a measure of the ratio of a household's monthly housing costs to income. Many government agencies consider housing costs excessive if they exceed more than 30% of the household income. Housing affordability measures are presented separately for renter occupied and homeowner occupied households.
+
+```{r hh_renter_30, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Affordability among Renters \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "rent_30") 
+hh_chart_percent <- chart_percent()
+hh_chart_percent
+
+```
+
+```{r hh_mortgage_30, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Affordability among Homewoners \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "mortgage_30") 
+hh_chart_percent <- chart_percent()
+hh_chart_percent
+
+```
+
+
+```{r, all_aff_hh, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+ filter(pop_1 == "Housing: Affordability") %>%
+  unique()
+hh_chart_percent <- chart_percent_table()
+hh_chart_percent
+
+```
+
+### Data Table
+```{r hh_aff_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(pop_1 == "Housing: Affordability") %>%
+  unique()
+hh_aff <- draw_data_table()
+hh_aff
+
+```      
+
+
+```{r hh_aff_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+## Substandard Housing {.tabset}
+Substandard conditions include housing units: 
+
+* lacking complete plumbing facilities (hot and cold running water and a bathtub or shower),
+* lacking complete kitchen facilities ( a sink with a faucet, a stove, and a refrigerator), 
+* overcrowding (i.e., more than 1.01 occupant per room), and
+* excessive cost burden (30% or more of the household income spent on rent or monthly owner costs).  
+  
+The more substandard conditions a household experiences, the poorer the quality of housing.
+
+```{r hh_1, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### 1 or more substandard conditions \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "house_sub_1") 
+hh_chart_percent <- chart_percent()
+hh_chart_percent
+
+```
+
+
+```{r hh_2, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### 2 or more substandard conditions \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "house_sub_2") 
+hh_chart_percent <- chart_percent()
+hh_chart_percent
+
+```
+
+
+```{r, all_hh, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+    filter(pop_1 == "Housing: Substandard") %>%
+  unique()
+hh_chart_percent <- chart_percent_table()
+hh_chart_percent
+
+```
+
+### Data Table
+```{r hh_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+   filter(pop_1 == "Housing: Substandard") %>%
+  unique()
+hh <- draw_data_table()
+hh
+
+```      
+
+
+```{r hh_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+
+
+# Access and Barriers to Care
+## {.tabset}
+This section of the report includes three outcomes that may affect access to care: the percent of occupied housing units with no available vehicle, the percent of occupied housing units with no computer or computing device (including a desktop, laptop, smartphone, tablet or other portable wireless computer, or some other type of computing device), and the percent of occupied housing units that do not have access to the internet.
+
+```{r vehicle, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### No Vehicle \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "vehicles_available") 
+hh_chart_percent <- chart_percent()
+hh_chart_percent
+
+```
+
+```{r computer, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### No Computer \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "no_computer") 
+hh_chart_percent <- chart_percent()
+hh_chart_percent
+
+```
+
+```{r internet, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### No Internet \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "no_internet") 
+hh_chart_percent <- chart_percent()
+hh_chart_percent
+
+```
+
+
+```{r, all_access, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+ filter(pop_1 == "Access") %>%
+  unique()
+hh_chart_percent <- chart_percent_table()
+hh_chart_percent
+
+```
+
+### Data Table
+```{r access_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+  filter(pop_1 == "Access") %>%
+  unique()
+hh_aff <- draw_data_table()
+hh_aff
+
+```      
+
+
+```{r access_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+
+
+# Special Populations
+## Veterans and Active Duty {.tabset}
+The U.S. Census Bureau classifies a civilian veteran "as a person 18 years old or over who has served (even for a short time), but is not now serving, on active duty in the U.S. Army, Navy, Air Force, Marine Corps, or the Coast Guard, or who served in the U.S. Merchant Marine during World War II."  The percent of veterans living in poverty is presented in the [poverty among veterans](#poverty-among-veterans) section of this report.
+  
+Active duty military are individuals who are on active duty with the U.S. Army, Navy, Air Force, Marine Corps, or the Coast Guard. Active duty military is calculated among those 16 and over.
+
+
+
+```{r vets, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Veterans\\n") 
+  df_new <- df_all %>%
+  filter(outcome == "veteran") 
+vet_chart_percent <- chart_percent()
+vet_chart_percent
+
+```
+
+
+```{r military, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Active Duty \\n") 
+  df_new <- df_all %>%
+  filter(outcome == "military") 
+mil_chart_percent <- chart_percent()
+mil_chart_percent
+
+```
+
+
+```{r, all_vets, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+    filter(pop_1 == "Veterans and Military") %>%
+  unique()
+vet_chart_percent <- chart_percent_table()
+vet_chart_percent
+
+```
+
+### Data Table
+```{r vets_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+    filter(pop_1 == "Veterans and Military") %>%
+  unique()
+vet_mil <- draw_data_table()
+vet_mil
+
+```      
+
+
+```{r vets_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+
+## Single Parent Households  {.tabset}
+Single parent households are households where children under the age of 18 are living with their single mother or father. To be classified as a "single parent household" the child or children are required to be under the age of 18, unmarried, and the child of the single parent by birth, marriage, or adoption. The percent of single parent households in poverty is presented in the [poverty among single parent households](#poverty-among-single-parents) section of this report.
+
+
+```{r single_parent, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Single parent Housheolds\\n") 
+  df_new <- df_all %>%
+  filter(outcome == "single_parent") 
+vet_chart_percent <- chart_percent()
+vet_chart_percent
+
+```
+
+
+```{r single_parent_female, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Single Mother Households\\n") 
+  df_new <- df_all %>%
+  filter(outcome == "single_parent_female") 
+vet_chart_percent <- chart_percent()
+vet_chart_percent
+
+```
+
+```{r single_parent_male, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Single Father Households\\n") 
+  df_new <- df_all %>%
+  filter(outcome == "single_parent_male") 
+vet_chart_percent <- chart_percent()
+vet_chart_percent
+
+```
+
+
+
+```{r, all_single, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+    filter(pop_1 == "Single Parent Household") %>%
+  unique()
+vet_chart_percent <- chart_percent_table()
+vet_chart_percent
+
+```
+
+### Data Table
+```{r single_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+    filter(pop_1 == "Single Parent Household") %>%
+  unique()
+vet_mil <- draw_data_table()
+vet_mil
+
+```      
+
+
+```{r single_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+## Foreign Born {.tabset}
+The U.S. Census Bureau defines foreign born individuals as "people who are not U.S. citizens at birth. This includes naturalized U.S. citizens, lawful permanent residents (immigrants), temporary migrants (such as foreign students), humanitarian migrants (such as refugees and asylees), and persons illegally present in the United States." The percent of foreign born individuals living in poverty is presented in the [poverty among foreign born](#poverty-among-foreign-born) section of this report.
+
+
+```{r foreign_born, eval = count_comp_targ >= set_num, echo = FALSE, results = 'asis'}
+
+asis_output("### Foreign Born\\n") 
+  df_new <- df_all %>%
+  filter(outcome == "foreign_born") 
+vet_chart_percent <- chart_percent()
+vet_chart_percent
+
+```
+
+
+
+```{r, all_foreign, eval = count_comp_targ < set_num, echo = FALSE, results = 'asis'}
+asis_output("### Bar Chart \\n") 
+
+df_new <- df_all %>%
+    filter(pop_1 == "Foreign Born") %>%
+  unique()
+vet_chart_percent <- chart_percent_table()
+vet_chart_percent
+
+```
+
+### Data Table
+```{r foreign_data_table, echo = FALSE, results = 'asis'}
+df_new <- df_all %>%
+    filter(pop_1 == "Foreign Born") %>%
+  unique()
+vet_mil <- draw_data_table()
+vet_mil
+
+```      
+
+
+```{r foreign_data_notes, echo = FALSE, results = 'asis'}
+
+df_new <- df_new[1, ]
+
+```      
+
+## {.unlisted .unnumbered}
+**Data Notes:**  
+`r paste0("* ", df_new$source)`  
+`r if(count_targ > 1 & params$aggregate_all == TRUE){paste0("* ", type_of_geo , " Total- Target Areas: Data have been aggregated across the following ", type_of_geo_plural,": ", geo_pretty)}`  
+`r if(length(params$compare_hhsa > 1)  & params$aggregate_hhsa == TRUE){paste0("* HHSA Total- Comparison Area:  Data have been aggregated across the following HHSA regions: ", comp_hhsa_pretty)}`  
+`r if(length(params$compare_sra) > 1  & params$aggregate_sra == TRUE){paste0("* SRA Total- Comparison Area:  Data have been aggregated across the following SRA regions: ", comp_sra_pretty)}`  
+`r if(length(params$compare_zcta) >  1 & params$aggregate_zcta == TRUE){paste0("* ZCTA Total- Comparison Area:  Data have been aggregated across the following zip codes: ", comp_zcta_pretty)}`
+`r if(length(params$compare_tract) >  1 & params$aggregate_tract == TRUE){paste0("* Census Tract Total- Comparison Area:  Data have been aggregated across the following Census Tracts: ", comp_tract_pretty)}`
+
+# Technical Notes
+## About the Data 
+The Community Experience Project: Service Planning Tool uses data from the U.S. Census Bureau's American Community Survey (ACS) for the 5-year period 2017-2021. While the U.S. Census Bureau conducts the decennial census every 10 years, the ACS is an ongoing representative sample of U.S. households. ACS data are survey estimates that are subject to sampling error and may be unreliable, especially for small geographic areas or small population groups. Small differences between groups may not be statistically significant and should be interpreted with caution.  
+  
+To improve reliability, the Service Planning Report uses 5-year "period estimates." These estimates are representative of the population across the entire 60-month data collection period. Areas are excluded if they failed to meet the geographic inclusion criteria developed for the Behavioral Health Equity Index (BHEI). This resulted in 19 of the initial 116 ZCTAs and 9 of the initial 736 Census Tracts being removed (no SRAs or HHSAs were removed).  
+
+In the Service Planning application percentages are suppressed and rankings are adjusted when estimates fail to meet the reliability threshold (i.e., the coefficient of variation for the denominator is greater than 40% and the size of the denominator is less than 50). Data are not suppressed in this report. To improve reliability, users are encouraged to review sample sizes when working with the tool and to aggregate areas when the numerator or denominators are small. For more information about the ACS, please refer to the [U.S. Census Bureau](https://www.census.gov/programs-surveys/acs)
+
+
+## Variable Notes and Definitions
+
+```{r tech_data_table_long, echo = FALSE, results = 'asis'}
+cat(paste0(tech_notes_title))
+
+tech_notes
+```
+
+
+

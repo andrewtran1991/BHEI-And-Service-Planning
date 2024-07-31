@@ -1,0 +1,484 @@
+---
+title: "Community Experience Partnership: <br> Service Planning Summary Report"
+subtitle: "Using data to inform behavioral health service planning in San Diego County"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  bookdown::html_document2: 
+    toc: false # table of content true
+    number_sections: false
+    fig_caption: true
+    theme: cerulean 
+    highlight: NULL
+
+runtime: cerulean
+
+params:
+  geos: NA
+---
+
+
+
+```{r logo, echo=FALSE, out.width = "30%", fig.align = "center"}
+knitr::include_graphics("cep_logo.png")
+```
+
+---
+<br> 
+
+```{r tidy_data, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Call dataframe and correct percents to no decimal points
+df_short_rmd <- service_rmd_short %>%
+    filter(source_filter %in% c("Community Data: Population Living in Poverty (below 100% Federal Poverty Level)", "Community Data: Population Overall" , "Behavioral Health Equity Index (BHEI)")) %>%
+  filter(outcome != "pov_under_5") %>%
+  filter(outcome != "pov_older_adults")
+
+
+
+
+# define area names ()
+ #area <- c("Chula Vista", "El Cajon", "Lemon Grove", "Mid-City", "Mountain Empire", "National City", "South Bay", #"Southeastern San Diego") 
+area <- params$geos
+#area <- c("Chula Vista")
+
+
+# Filter dataframe to geographies selected in shiny app 
+df_short_rmd <- df_short_rmd %>%
+  filter(GEOID %in% area) 
+# Written text for the RMD report needs to updated based on the type of geography selected,
+# the number of geographies selected and the # of HHSA regions represented for SRA and Zip Codes
+      type_of_geo <- unique(df_short_rmd$type)
+     
+      
+      # Combine words correctly for reading (using , `and') for areas and hhsa regions
+      area_pretty <- combine_words(area)
+      hhsa_pretty <- combine_words(unique(df_short_rmd$hhsa_nm))
+      
+      # Count the number of selected areas and HHSA regions
+      area_length <- length(area)
+      hhsa_length <- unique(df_short_rmd$hhsa_nm)
+      hhsa_length <- ifelse(type_of_geo != "HHSA", length(hhsa_length), 0)
+      
+      # Make regions plural if more than one area selected
+      if (type_of_geo  == "SRA") {
+      area_plural <- ifelse(area_length > 1,
+                          paste(area_pretty, "are Subregional Areas (SRAs)"),
+                          paste(area_pretty, "is a Subregional Area (SRA)"))
+      }
+      
+         if (type_of_geo  == "Census Tract") {
+      area_plural <- ifelse(area_length > 1,
+                          paste("Census tracts", area_pretty, "are"),
+                          paste("Census tract", area_pretty, "is"))
+      }
+      
+      if (type_of_geo  == "HHSA") {
+      area_plural <- ifelse(area_length > 1, 
+                            paste("The", area_pretty, "regions are HHSA geographies"),
+                            paste("The", area_pretty, "region is a HHSA geography"))
+      
+      }
+      
+       if (type_of_geo  == "Zip") {
+      area_plural <- ifelse(area_length > 1,
+                          paste("Zip codes", area_pretty, "are"),
+                          paste("Zip code", area_pretty, "is"))
+      }
+           
+      hhsa_plural <- ifelse(hhsa_length > 1, paste0("located in the ", hhsa_pretty, " HHSA regions of San Diego County."),
+                            ifelse(hhsa_length == 1, paste0("located in the ", hhsa_pretty, " HHSA region of San Diego County."), 
+                              ifelse(hhsa_length == 0,  paste("located in San Diego County."), "")))
+      
+      was_were <- ifelse(area_length > 1, "were", "was")
+      area_areas <- ifelse(area_length > 1, "areas", "area") 
+      type_of_geo_plural <- paste0(type_of_geo, "s")
+      type_of_geo_plural <- ifelse(type_of_geo  == "Zip", "zip codes", type_of_geo_plural)
+      
+      # General names to reference combined areas if >1 areas selected or area name in the report
+      area_combined_lower <- ifelse(area_length > 1, "the selected areas", 
+                                    ifelse(area_length == 1 & type_of_geo  == "Zip", paste("zip code", area), 
+                                           ifelse(area_length == 1 & type_of_geo  == "HHSA", paste("the", area, "region"), area)))
+      area_combined_upper <- ifelse(area_length > 1, "The selected areas",
+                                    ifelse(area_length == 1 & type_of_geo  == "Zip", paste("Zip code", area),
+                                           ifelse(area_length == 1 & type_of_geo  == "HHSA", paste("The", area, "region"), area)))
+      
+      
+      # Select verbs based on one or more area
+      #area_verb <- ifelse(area_length > 1, "are", "is a")
+      #hhsa_verb <- ifelse(hhsa_length > 1, "are", "is")
+
+      # Paste together to make first sentence
+      first_sentence <- paste(area_plural,  hhsa_plural)
+      
+      # Paste to generate figure caption
+      fig_title <- paste("Figure 1. Key differences for", area_combined_lower, "compared to San Diego County (%)")
+      data_table_title <- paste("Table 1. All indicators for", area_combined_lower, "compared to San Diego County (%)")
+      acs_year <- unique(service_rmd_short$year)
+      fig_source <- paste("Source: U.S. Census Bureau, American Community Survey, 5-year estimates,", acs_year)
+      fig_selected_areas <- paste("*Selected areas:", area_pretty)
+  
+ 
+    
+    # Round to whole numbers
+ if(area_length == 1){   
+  df_short_rmd <- df_short_rmd %>%
+    mutate(percent = as.numeric(format(round(percent, 0)))) %>%
+    mutate(cnty_percent = as.numeric(format(round(cnty_percent, 0))))
+ }
+      
+  # Remove variables 
+  df_short_rmd <- df_short_rmd %>%
+   dplyr::select(-rlblty_, -hhsa_nm) 
+  
+# If > 1 geography is selected: Recalcuate data points based on aggregation of selected areas
+# Recalculate numerator, denominator and percent based on aggregated data
+if(area_length > 1){
+  # Calculate new BHEI index ranks for aggregated areas
+  # multiply the index_ranks for selected areas by the proportion of aggregated population in each selected geography. Sum.
+  # Then re-rank against all geographies
+  
+  # Calculate total population for selected areas and proportion of the total pop in each areas
+  bhei_pop <- df_short_rmd %>%
+      filter(outcome == "total_population_census")  %>%
+      dplyr::select(smst_nm, GEOID) %>%
+      mutate(total_pop = sum(smst_nm), 
+              proportion_pop = smst_nm/total_pop, 
+              pop_1 = "Behavioral Health Equity Index (BHEI)") %>%
+      dplyr::select(-smst_nm)
+  # Merge to BHEI data  and multiply BHEI rank by population proportion
+  df_short_rmd_selected <- left_join(df_short_rmd, bhei_pop) %>%
+      mutate(bhei_new_rank = ifelse(pop_1 == "Behavioral Health Equity Index (BHEI)", smst_nm*proportion_pop, NA))
+
+  df_short_rmd_selected <- df_short_rmd_selected %>%
+    group_by(outcome) %>%
+    dplyr::select(-percentile, -percent_pretty) %>%
+    mutate(smst_nm = sum(round(smst_nm, 0)),
+          smst_dn = sum(round(smst_dn, 0)),
+          percent = smst_nm/smst_dn,
+          percent = as.numeric(format(round((percent * 100), 0))),
+          bhei_new_rank = sum(round(bhei_new_rank, 1)),
+          percent = ifelse(pop_1 == "Behavioral Health Equity Index (BHEI)",  bhei_new_rank, percent), #Add weighted ranks for combined geos
+          smst_nm = ifelse(pop_1 == "Behavioral Health Equity Index (BHEI)",bhei_new_rank, smst_nm), #Add weighted ranks for combined geos
+          cnty_percent = as.numeric(format(round(cnty_percent, 0))),
+          smst_nm_pretty  = prettyNum(smst_nm, big.mark = ","),
+          smst_dn_pretty  = prettyNum(smst_dn, big.mark = ","),
+          GEOID = paste0("Selected ", type_of_geo, "s")) %>%
+    dplyr::select(-total_pop, -proportion_pop, -bhei_new_rank) %>%
+      unique()
+  
+ 
+    
+# Remove selected regions from base data frame, 
+    df_short_rmd_not_selected <- service_rmd_short %>%
+       filter((!(GEOID %in% area) & type == type_of_geo))
+    
+# bind aggregate data to base data frame  
+# Recalculate rank and percentile based on aggregated data   
+    df_short_rmd <- bind_rows(df_short_rmd_not_selected, df_short_rmd_selected) %>%
+          group_by(outcome) %>%
+          dplyr::select(-percentile) %>%
+          unique() %>%
+          arrange(percent, smst_nm, by.group = T) %>%
+          #mutate(rank_asc = row_number(),
+          mutate(rank_asc = rank(percent, ties.method = c("max")),
+            percentile = percent_rank(rank_asc),
+            percentile = as.numeric(format(round((percentile * 100), 2))),
+            percent = ifelse(pop_1 == "Behavioral Health Equity Index (BHEI)", rank_asc, percent)) %>%
+          add_count() %>%
+          ungroup() 
+   
+    
+# Remove regions that are not selected (we now have new rank basked on aggregated data)
+     df_short_rmd <- df_short_rmd %>%
+          filter(., grepl("Selected", GEOID)) 
+     
+  }
+
+# Count the number of comparison areas that can actually be ranked (assume we need at at least 4 areas to assign quartile ranks, 3 comparison areas + 1 aggregated area. If there are fewer than 4 regions it does not make sense to rank, this can happen when 4 or more HHSA regions are selected and aggregated)
+if (area_length > 1) {
+     df_count_compare <- df_short_rmd_not_selected  %>%
+       dplyr::select(GEOID) %>%
+       unique()
+     count_compare <- nrow(df_count_compare)
+     count_compare <- count_compare+1
+     } else {
+  df_count_compare <- service_rmd_short  %>%
+       filter(type == type_of_geo) %>%
+       dplyr::select(GEOID) %>%
+       unique()
+   count_compare <- nrow(df_count_compare)
+}
+
+# Save variable of the total population (this is used in the narrative of the report)
+total_pop_length <- df_short_rmd %>%
+  filter(outcome == "total_population_census") 
+total_pop <- unique(total_pop_length$smst_nm)
+total_pop_pretty <- prettyNum(total_pop, big.mark = ",")
+
+# Move to wide_form for easy referencing of percentages by outcome in text
+short_wide <- df_short_rmd %>%
+  dplyr::select(-percent_pretty) %>%
+    mutate(percent_pretty = ifelse(percent < 1.0, "<1%", paste0(percent,"%"))) %>%
+    mutate(percent_pretty = ifelse(pop_1 == "Behavioral Health Equity Index (BHEI)", paste("Ranked", percent, "of", count_compare), percent_pretty)) %>%
+  dplyr::select(outcome, percent_pretty) %>%
+  unique() %>%
+  pivot_wider(names_from = outcome, values_from = percent_pretty)
+
+# Move to wide_form for easy referencing of cnty percentages by outcome in text
+short_wide_cnty <- df_short_rmd %>%
+    mutate(cnty_pretty = round(cnty_percent, 0),
+           cnty_pretty = ifelse(cnty_percent < 1.0, "<1%", paste0(cnty_pretty,"%"))) %>%
+  dplyr::select(outcome, cnty_pretty) %>%
+  unique() %>%
+  pivot_wider(names_from = outcome, values_from = cnty_pretty)
+
+
+# Restrict outcomes to those in the top or bottom quartile for the dumbbell plots
+df_short_rmd_dumbbell <- df_short_rmd %>%
+
+  filter(outcome != "ins_total") %>%  # Keep Medical variable alone, not Medi-Cal for penetration
+  filter(outcome != "total_population_census") %>%
+  dplyr::select(GEOID, percentile, percent, cnty_percent, tbl_l_1) %>%
+  mutate(difference = abs(percent - cnty_percent)) %>%
+  filter((percentile >= 75| percentile <= 25) & (difference >= 5 & !is.na(difference)))
+
+# Save a count of the number of outlier areas, if 0 or 1 will need special language in the RMD report
+ count_outliers <-nrow(df_short_rmd_dumbbell)
+ 
+# Define variables for RMD text
+
+ ### Selected Area Percentages ### 
+# index
+ bhei_rank <- short_wide$index
+
+### Community data 
+
+
+# Race/ethnicity
+hispanic <- short_wide$hispanic
+api <- short_wide$api
+white <- short_wide$white
+black <- short_wide$black
+multi <- short_wide$two_or_more_race
+ai <- short_wide$ai_an
+
+# Poverty
+poverty <- short_wide$under_100_fpl
+poverty_200 <- short_wide$under_200_fpl
+
+# Educational
+no_hs <-  short_wide$less_than_hs
+no_bach <- short_wide$less_than_bach
+# Unemployed
+unemployed <- short_wide$unemployed
+# Limited English
+lep <- short_wide$any_limited_english
+# Public Assistance
+snap <- short_wide$snap
+public <- short_wide$public_assist
+# Insurance
+medicaid <- short_wide$medicaid
+private <- short_wide$private
+uninsured <- short_wide$uninsured
+# Cost burden
+renters <- short_wide$rent_30
+
+### County Percentages ####
+
+# Race/ethnicity
+hispanic_cnty <- short_wide_cnty$hispanic
+api_cnty <- short_wide_cnty$api
+white_cnty <- short_wide_cnty$white
+black_cnty <- short_wide_cnty$black
+multi_cnty <- short_wide_cnty$two_or_more_race
+ai_cnty <- short_wide_cnty$ai_an
+
+# Poverty
+poverty_cnty <- short_wide_cnty$under_100_fpl
+poverty_200_cnty <- short_wide_cnty$under_200_fpl
+
+# Educational
+no_hs_cnty <-  short_wide_cnty$less_than_hs
+no_bach_cnty <- short_wide_cnty$less_than_bach
+# Unemployed
+unemployed_cnty <- short_wide_cnty$unemployed
+# Limited English
+lep_cnty <- short_wide_cnty$any_limited_english
+# Public Assistance
+snap_cnty <- short_wide_cnty$snap
+public_cnty <- short_wide_cnty$public_assist
+# Insurance
+medicaid_cnty <- short_wide_cnty$medicaid
+private_cnty <- short_wide_cnty$private
+uninsured_cnty <- short_wide_cnty$uninsured
+# Cost burden
+renters_cnty <- short_wide_cnty$rent_30
+
+
+
+
+
+## Define data tables ####
+
+outcomes_data_table <- df_short_rmd  %>%
+  filter(pop_1 != "Behavioral Health Equity Index (BHEI)") %>%
+  mutate(`Selected Area (n of N)` = paste(smst_nm_pretty, "of" , smst_dn_pretty)) %>%
+  #mutate(`Selected Area (n of N)` = ifelse(pop_1 == "Behavioral Health Equity Index (BHEI)", "-", `Selected Area (n of N)`)) %>%
+  mutate(`County (n of N)` = paste(cnty_nm_pretty, "of" , cnty_dn_pretty)) %>%
+  #mutate(`County (n of N)` = ifelse(pop_1 == "Behavioral Health Equity Index (BHEI)", "-", `County (n of N)`)) %>%
+  filter(outcome != "total_population_census") %>%
+  filter(outcome != "total_occupied_hu") %>%
+  dplyr::select(pop_1, tbl_l_1, percent, `Selected Area (n of N)`,  cnty_percent, `County (n of N)`) 
+outcomes_data_table <-  left_join(outcomes_data_table, technical_data_table, by = c(pop_1 = "Outcome", tbl_l_1 = "Category")) %>%
+  rename(source_filter = "Data Type") %>%
+  arrange(source_filter, pop_1) %>%
+  rename("Data Type" = "source_filter", "Category" = "pop_1", "Indicator" = "tbl_l_1", "Selected Area Estimates (%)" = percent, "County Estimates (%)" = cnty_percent) %>%
+select("Data Type", everything()) 
+  
+
+
+
+
+```
+
+
+# Key Community Statistics
+
+`r first_sentence` An estimated `r total_pop_pretty` people live in `r area_combined_lower`. Key statistics are presented below. `r if(area_length > 1){paste0("Please note, because more than one area was selected in the [Service Planning Tool](#https://cepservice.shinyapps.io/CEPService/_w_90ab1a2e/), the data in this report are aggregated across all selected regions.")}`  `r if(total_pop < 1200){paste0("Caution: These estimates are based on a relatively small total population (i.e., <1,200 residents) and may be unreliable. To improve reliability, users are encouraged to select additional regions using the CEP Service Planning application. ")}`
+
+
+*	Racial/Ethnic Identities: Residents in `r area_combined_lower` identified as `r hispanic` Hispanic, `r white`  non-Hispanic (NH) White, `r black` NH Black, `r api` Asian/Pacific Islander (API),  `r ai` NH American Indian/Alaska Native (AI/AN), and `r multi` NH Multiracial. By comparison, San Diego County residents identified as `r hispanic_cnty` Hispanic, `r white_cnty`  NH White, `r black_cnty` NH Black, `r api_cnty` API,  `r ai_cnty` NH AI/AN, and `r multi_cnty` NH Multiracial.
+* Poverty: `r poverty` of residents in `r area_combined_lower` were living below the federal poverty line (FPL) and `r poverty_200` were living below 200%, or twice, the FPL. By comparison, `r poverty_cnty` of San Diego County residents were living below the FPL and `r poverty_200_cnty` were living below 200% the FPL.
+* Educational Attainment: `r no_hs` of residents in `r area_combined_lower` did not have a high school diploma and `r no_bach` did not have a bachelor's degree. By comparison, `r no_hs_cnty` of San Diego County residents did not have a high school diploma and `r no_bach_cnty` did not have a bachelor's degree. 
+*	Unemployment: `r unemployed` of residents in `r area_combined_lower` reported being unemployed compared to `r unemployed_cnty` of San Diego County residents.
+*	Limited English-Speaking Ability: `r lep` of residents over age five in `r area_combined_lower` reported speaking a language other than English at home and speaking English less than very well. By comparison, `r lep_cnty` of San Diego County residents over five reported limited English-speaking ability.
+*	Receipt of Food Stamps/SNAP: `r snap` of residents in `r area_combined_lower` received Food Stamps/SNAP compared to `r snap_cnty` of San Diego County residents.
+*	Health Insurance:  `r medicaid` of residents in `r area_combined_lower` were Medi-Cal insured, `r private` had private insurance, and `r uninsured` were uninsured. By comparison, `r medicaid_cnty` of San Diego County residents were Medi-Cal insured, `r private_cnty` had private insurance, and `r uninsured_cnty` were uninsured. 
+*	Housing:  `r renters` of renters in `r area_combined_lower` reported excessive cost burden for housing, defined as spending more than 30% of their income on housing costs. By comparison, `r renters_cnty` of renters in San Diego County reported excessive cost burden.    
+
+
+
+```{r key_difference_header, eval =  count_compare >= 3, echo = FALSE, results = 'asis'}
+asis_output("## Key Differences \\n") 
+
+```
+
+```{r key_difference_text, eval =  count_compare >= 3, echo = FALSE, results = 'asis'}
+cat(paste(area_combined_upper, was_were, 'compared to the other', type_of_geo_plural, 'in San Diego County and ranked across more than 50 demographic, economic, and social indicators. Analyses were conducted to find those indicators where rates for', area_combined_lower , 'were among the highest or lowest when compared to the other', type_of_geo_plural, 'in San Diego County. See [Appendix A] for a complete table of indicators and [Appendix B] for more information on the background and methods. \n'))
+
+```
+
+
+
+```{r no_differences, eval = count_outliers == 0 & count_compare >= 3, echo = FALSE, results = 'asis'}
+cat('These analyses found no indicators that were especially high or low for',area_combined_lower,'.')
+
+```
+
+```{r differences, eval = count_outliers >= 1 & count_compare >= 3 , echo = FALSE, results = 'asis'}
+cat(count_outliers,'indicators were identified as being especially high or low (i.e., outliers) for', area_combined_lower,'. Figure 1 summarizes these indicators for', area_combined_lower,'compared to San Diego County overall.\n')
+
+```
+<br> 
+<br> 
+  
+
+```{r dumbbell, eval = count_outliers >= 1 & count_compare >= 3, echo = FALSE, results = 'asis'}
+cat(paste0(fig_title))
+
+# Adjust height of dumbbell lot for the number of indicators
+if (count_outliers <= 3) {
+  set_height <- 200
+}
+  if (count_outliers >= 4 & count_outliers < 5) {
+  set_height <- 400
+}
+
+  if (count_outliers >= 5 & count_outliers < 10) {
+  set_height <- 600
+  }
+
+
+  if (count_outliers >= 10 & count_outliers < 15) {
+  set_height <- 800
+}
+
+ if (count_outliers >= 15) {
+  set_height <- 900
+}
+df_short_rmd_dumbbell <- df_short_rmd_dumbbell %>%
+  arrange(percent) %>%
+  mutate(tbl_l_1 = factor(tbl_l_1, levels = unique(.$tbl_l_1)))
+
+fig <- plot_ly(df_short_rmd_dumbbell, color = I("gray80"),  width = 900, height = set_height)
+fig <- fig %>% add_segments(x = ~percent, xend = ~cnty_percent, y = ~tbl_l_1, yend = ~tbl_l_1, showlegend = FALSE)
+fig <- fig %>% add_markers(x = ~as.integer(percent), y = ~tbl_l_1, name = ~GEOID, color = I("#Faa663"), )
+fig <- fig %>% add_markers(x = ~as.integer(cnty_percent), y = ~tbl_l_1, name = "San Diego County", color = I("#00a9c5"))
+fig <- fig %>% layout(
+  title = "",
+  xaxis = list(title = "Percent (%)", 
+               rangemode='tozero'),
+  yaxis = list(dtick = 1, title = ""),
+  margin =  list(l = 50, r = 50,
+                 b = 100, t = 20,
+                 pad = 20)) 
+fig <- fig %>% config(modeBarButtonsToRemove = c( "lasso2d", "pan2d",  "select2d", "autoScale2d", "resetScale2d", "hoverClosestCartesian", 
+                                     "hoverCompareCartesian", "zoomIn2d", "zoomOut2d"), displaylogo = FALSE, displayModeBar = TRUE)
+
+
+dumbbell_reduced <- fig
+
+dumbbell_reduced
+
+cat(paste0(fig_source))
+
+```
+  
+  
+```{r selected areas, eval = count_outliers >= 1 & count_compare >= 3 & area_length > 1, echo = FALSE, results = 'asis'}
+
+
+cat(paste0(fig_selected_areas))
+
+```
+  
+  
+
+## Appendix A
+<br>
+<br>
+`r data_table_title`
+```{r outcomes_data_table, echo = FALSE, results = 'asis'}
+outcomes_dt <- datatable(outcomes_data_table, 
+          rownames = FALSE,
+          filter = "top",
+          extensions = c('Buttons', 'FixedHeader'),  # Add the 'FixedHeader' extension
+          options = list(dom = 'frtipB',
+                         buttons = c('copy', 'excel', 'pdf'),
+                         scrollX = TRUE,
+                         fixedHeader = TRUE,  # Enable the fixed header
+                         lengthMenu = list(c(15,35,50,-1),
+                                           c(15,35,50,"All"))))
+outcomes_dt
+
+cat(paste0(fig_source))
+br()
+cat(paste0(fig_selected_areas))
+
+
+```
+
+
+## Appendix B
+### Background and Methods
+This report is generated by the Community Experience Project: Service Planning Tool, a custom application designed by UC San Diego in collaboration with County of San Diego Behavioral Health Services. The goals of the tool are to help ensure service provision is informed by data, based in cultural and regional considerations, and focused on communities that may be at greatest risk for unmet behavioral health need. This report summarizes the social, economic, housing, and demographic profiles of selected regions using data from the U.S. Census Bureau's American Community Survey (ACS) for the 5-year period 2017-2021.
+
+The following methodology is used to identify "Key Differences" in this report:
+  
+*	For each of the 50+ demographic, economic, and social indicators included in the report, the percentages are ranked by geography (i.e., subregional areas are ranked against subregional areas, zip codes are ranked against zip codes, etc.). A higher ranking corresponds to a higher percentage of residents who self-report each indicator or a higher ranking on the BHEI index and domains. 
+  
+* An area is included in the "Key Differences" section of the report if it meets the following criteria:  
+    * the area has a ranking in the top or bottom 25% (i.e., top or bottom quartile)
+    * the difference between the area estimate and the estimate for San Diego County is at least 5 percentage points, and  
+    * there are at least four geographies available to rank
