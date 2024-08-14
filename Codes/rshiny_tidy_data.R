@@ -1,9 +1,6 @@
 # Purpose: service planning tool and report
 # To generate the raw data that sources this app run the "00. Execute_v1" script
-# in this folder: S:\Pop\Data\Disparities_Report\Disparities_Analysis\most_recent_analysis\02_Scripts\acs_census_2020
-
 # Turn this off when launching to shinyapps
-#setwd("/Users/KateWork/Desktop/CASRC/Rshiny")
 rm(list = ls())
 
 # Define UI for application 
