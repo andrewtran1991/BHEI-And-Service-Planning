@@ -1,7 +1,6 @@
 # Define UI for application 
 # Service Planning App
 
-#setwd("/Users/KateWork/Desktop/CASRC/Rshiny")
 source("rshiny_tidy_data.R")
 
 # data.frame with credentials info
